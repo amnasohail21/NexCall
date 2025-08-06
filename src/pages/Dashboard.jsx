@@ -1,6 +1,7 @@
 import { useAuth } from '../AuthContext';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
+import VideoChat from '../components/VideoChat';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -49,6 +50,7 @@ function Dashboard() {
           ))}
         </ul>
       </div>
+      <VideoChat />
     </div>
   );
 }
