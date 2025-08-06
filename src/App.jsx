@@ -1,8 +1,11 @@
+import Dashboard from './pages/Dashboard';
 import { Routes, Route, Link, Navigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { useState } from 'react';
 import { auth, provider } from './firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
+
+
 
 function Home() {
   return <h1 className="text-center mt-10 text-3xl">Welcome to NexCall</h1>;
@@ -54,18 +57,6 @@ function Login() {
           Sign in with Google
         </button>
       )}
-    </div>
-  );
-}
-
-function Dashboard() {
-  const { user } = useAuth();
-
-  return (
-    <div className="text-center mt-10">
-      <h1 className="text-3xl mb-2">🎥 Call Dashboard</h1>
-      <p className="text-gray-600">Logged in as {user?.displayName}</p>
-      {/* Online users, join call button, etc. will go here */}
     </div>
   );
 }
