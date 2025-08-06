@@ -1,4 +1,5 @@
-import { Routes, Route, Link } from 'react-router-dom';
+import { Routes, Route, Link, Navigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
 import { useState } from 'react';
 import { auth, provider } from './firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
@@ -58,28 +59,35 @@ function Login() {
 }
 
 function Dashboard() {
-  return <h1 className="text-center mt-10 text-3xl">Dashboard (coming soon)</h1>;
+  const { user } = useAuth();
+
+  return (
+    <div className="text-center mt-10">
+      <h1 className="text-3xl mb-2">🎥 Call Dashboard</h1>
+      <p className="text-gray-600">Logged in as {user?.displayName}</p>
+      {/* Online users, join call button, etc. will go here */}
+    </div>
+  );
 }
 
 function App() {
+  const { user } = useAuth();
+
   return (
     <div>
       <nav className="p-4 bg-gray-800 text-white flex space-x-4">
-        <Link to="/" className="hover:underline">
-          Home
-        </Link>
-        <Link to="/login" className="hover:underline">
-          Login
-        </Link>
-        <Link to="/dashboard" className="hover:underline">
-          Dashboard
-        </Link>
+        <Link to="/" className="hover:underline">Home</Link>
+        <Link to="/login" className="hover:underline">Login</Link>
+        <Link to="/dashboard" className="hover:underline">Dashboard</Link>
       </nav>
 
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route
+          path="/dashboard"
+          element={user ? <Dashboard /> : <Navigate to="/login" replace />}
+        />
       </Routes>
     </div>
   );
