@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { 
-  database, 
-  // import get, set, push, remove, ref, onValue from firebase/database
-} from "../firebase";
-import { ref, onValue, set, push, get, remove } from "firebase/database";
+import { ref, onValue, set, push, get, remove, off } from "firebase/database";
+import { database } from "../firebase";
 
 function VideoChat({ roomId }) {
   const localVideoRef = useRef();
@@ -20,42 +17,10 @@ function VideoChat({ roomId }) {
   const calleeCandidatesRef = ref(database, `rooms/${roomId}/calleeCandidates`);
 
   useEffect(() => {
-    if (!roomId) return;
-
-    pcRef.current = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" }
-      ],
-    });
-
-    // When remote track arrives, show it on remote video
-    pcRef.current.ontrack = (event) => {
-      remoteVideoRef.current.srcObject = event.streams[0];
-    };
-
-    // Caller ICE candidates -> callerCandidates path
-    // Callee ICE candidates -> calleeCandidates path
-    pcRef.current.onicecandidate = (event) => {
-      if (!event.candidate) return;
-
-      const candidateData = event.candidate.toJSON();
-      const candidatesRef = isCaller ? callerCandidatesRef : calleeCandidatesRef;
-      push(candidatesRef, candidateData);
-    };
-
-    // Cleanup on unmount
-    return () => {
-      pcRef.current?.close();
-      remove(roomRef); // Remove room data when done
-    };
-  }, [roomId, isCaller]);
-
-  // Listen for remote ICE candidates based on role
-  useEffect(() => {
-    if (!roomId) return;
+    if (!roomId || !pcRef.current) return;
     const remoteCandidatesRef = isCaller ? calleeCandidatesRef : callerCandidatesRef;
 
-    const unsubscribe = onValue(remoteCandidatesRef, (snapshot) => {
+    const unsubscribeCandidates = onValue(remoteCandidatesRef, (snapshot) => {
       const candidates = snapshot.val();
       if (candidates) {
         Object.values(candidates).forEach((candidate) => {
@@ -64,41 +29,68 @@ function VideoChat({ roomId }) {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeCandidates();
+    };
   }, [roomId, isCaller]);
 
-  // Caller: start call and create offer
+  useEffect(() => {
+    return () => {
+      pcRef.current?.close();
+      remove(roomRef);
+    };
+  }, [roomId]);
+
+  const setupPeerConnection = () => {
+    pcRef.current = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    pcRef.current.ontrack = (event) => {
+      remoteVideoRef.current.srcObject = event.streams[0];
+    };
+
+    pcRef.current.onicecandidate = (event) => {
+      if (!event.candidate) return;
+
+      const candidateData = event.candidate.toJSON();
+      const candidatesRef = isCaller ? callerCandidatesRef : calleeCandidatesRef;
+      push(candidatesRef, candidateData);
+    };
+  };
+
   const startCall = async () => {
     setIsCaller(true);
+    setupPeerConnection();
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
+    stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
 
     const offer = await pcRef.current.createOffer();
     await pcRef.current.setLocalDescription(offer);
 
     await set(offerRef, offer);
 
-    // Listen for answer
-    onValue(answerRef, async (snapshot) => {
+    // Listen for answer with state check
+    const unsubscribeAnswer = onValue(answerRef, async (snapshot) => {
       const answer = snapshot.val();
-      if (answer) {
+      if (answer && pcRef.current.signalingState === "have-local-offer") {
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
         setStarted(true);
+        unsubscribeAnswer();  // Stop listening after receiving answer
       }
     });
   };
 
-  // Callee: answer call
   const answerCall = async () => {
     setIsCaller(false);
+    setupPeerConnection();
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoRef.current.srcObject = stream;
-    stream.getTracks().forEach(track => pcRef.current.addTrack(track, stream));
+    stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
 
-    // Get offer from DB
     const offerSnapshot = await get(offerRef);
     const offer = offerSnapshot.val();
     if (!offer) {
