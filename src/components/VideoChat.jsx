@@ -16,32 +16,29 @@ function VideoChat({ roomId }) {
   const callerCandidatesRef = ref(database, `rooms/${roomId}/callerCandidates`);
   const calleeCandidatesRef = ref(database, `rooms/${roomId}/calleeCandidates`);
 
-  // Setup peer connection with event handlers
+  // Setup peer connection
   const setupPeerConnection = () => {
     pcRef.current = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
-    // When remote track arrives, show it in remote video
     pcRef.current.ontrack = (event) => {
-      console.log("Remote track received");
+      console.log("📡 Remote track received");
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
-    // When local ICE candidate is found, push it to Firebase
     pcRef.current.onicecandidate = (event) => {
       if (!event.candidate) return;
-
       const candidateData = event.candidate.toJSON();
       const candidatesRef = isCaller ? callerCandidatesRef : calleeCandidatesRef;
       push(candidatesRef, candidateData);
-      console.log("Local ICE candidate pushed:", candidateData);
+      console.log("📡 Local ICE candidate pushed:", candidateData);
     };
   };
 
-  // Listen for remote ICE candidates depending on role
+  // Handle remote ICE candidates
   useEffect(() => {
     if (!roomId || !pcRef.current || isCaller === null) return;
 
@@ -52,9 +49,9 @@ function VideoChat({ roomId }) {
         Object.values(candidates).forEach(async (candidate) => {
           try {
             await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log("Added remote ICE candidate:", candidate);
+            console.log("✅ Remote ICE candidate added:", candidate);
           } catch (err) {
-            console.error("Error adding remote ICE candidate:", err);
+            console.error("⚠️ Error adding remote ICE candidate:", err);
           }
         });
       }
@@ -63,19 +60,18 @@ function VideoChat({ roomId }) {
     return () => unsubscribe();
   }, [roomId, isCaller]);
 
-  // Cleanup when component unmounts or roomId changes
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
       }
-      // Clean room data on hangup or unmount
       remove(roomRef).catch(() => {});
     };
   }, [roomId]);
 
-  // Caller starts call by creating offer
+  // Caller
   const startCall = async () => {
     setIsCaller(true);
     setupPeerConnection();
@@ -87,25 +83,32 @@ function VideoChat({ roomId }) {
 
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
-
       await set(offerRef, offer);
-      console.log("Offer set in DB:", offer);
+      console.log("📤 Offer set in DB:", offer);
 
-      // Listen for answer
-      onValue(answerRef, async (snapshot) => {
+      const unsubscribe = onValue(answerRef, async (snapshot) => {
         const answer = snapshot.val();
-        if (answer) {
-          console.log("Answer received:", answer);
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-          setStarted(true);
+        if (
+          answer &&
+          pcRef.current &&
+          pcRef.current.signalingState === "have-local-offer"
+        ) {
+          try {
+            console.log("📨 Answer received:", answer);
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+            setStarted(true);
+            unsubscribe(); // Listen only once
+          } catch (err) {
+            console.error("❌ Failed to set remote answer:", err);
+          }
         }
       });
     } catch (err) {
-      console.error("Error starting call:", err);
+      console.error("❌ Error starting call:", err);
     }
   };
 
-  // Callee answers call by fetching offer, setting remote desc, creating answer
+  // Callee
   const answerCall = async () => {
     setIsCaller(false);
     setupPeerConnection();
@@ -117,24 +120,22 @@ function VideoChat({ roomId }) {
 
       const offerSnapshot = await get(offerRef);
       const offer = offerSnapshot.val();
-
       if (!offer) {
         alert("No offer found!");
         return;
       }
 
-      console.log("Setting remote description with offer:", offer);
+      console.log("📥 Setting remote description with offer:", offer);
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
 
       const answer = await pcRef.current.createAnswer();
       await pcRef.current.setLocalDescription(answer);
-
       await set(answerRef, answer);
-      console.log("Answer set in DB:", answer);
+      console.log("📤 Answer set in DB:", answer);
 
       setStarted(true);
     } catch (err) {
-      console.error("Error answering call:", err);
+      console.error("❌ Error answering call:", err);
     }
   };
 
