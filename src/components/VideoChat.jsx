@@ -7,38 +7,34 @@ function VideoChat({ roomId }) {
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
   const [started, setStarted] = useState(false);
-  const [isCaller, setIsCaller] = useState(null); // null = no role yet
+  const [isCaller, setIsCaller] = useState(null);
 
-  // Firebase DB paths
   const roomRef = ref(database, `rooms/${roomId}`);
   const offerRef = ref(database, `rooms/${roomId}/offer`);
   const answerRef = ref(database, `rooms/${roomId}/answer`);
   const callerCandidatesRef = ref(database, `rooms/${roomId}/callerCandidates`);
   const calleeCandidatesRef = ref(database, `rooms/${roomId}/calleeCandidates`);
 
-  // Setup peer connection
   const setupPeerConnection = () => {
     pcRef.current = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
     pcRef.current.ontrack = (event) => {
-      console.log("📡 Remote track received");
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
     };
 
     pcRef.current.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      const candidateData = event.candidate.toJSON();
-      const candidatesRef = isCaller ? callerCandidatesRef : calleeCandidatesRef;
-      push(candidatesRef, candidateData);
-      console.log("📡 Local ICE candidate pushed:", candidateData);
+      if (event.candidate) {
+        const candidateData = event.candidate.toJSON();
+        const candidatesRef = isCaller ? callerCandidatesRef : calleeCandidatesRef;
+        push(candidatesRef, candidateData);
+      }
     };
   };
 
-  // Handle remote ICE candidates
   useEffect(() => {
     if (!roomId || !pcRef.current || isCaller === null) return;
 
@@ -49,9 +45,8 @@ function VideoChat({ roomId }) {
         Object.values(candidates).forEach(async (candidate) => {
           try {
             await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log("✅ Remote ICE candidate added:", candidate);
           } catch (err) {
-            console.error("⚠️ Error adding remote ICE candidate:", err);
+            console.error("Error adding remote ICE candidate:", err);
           }
         });
       }
@@ -60,7 +55,6 @@ function VideoChat({ roomId }) {
     return () => unsubscribe();
   }, [roomId, isCaller]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (pcRef.current) {
@@ -71,7 +65,6 @@ function VideoChat({ roomId }) {
     };
   }, [roomId]);
 
-  // Caller
   const startCall = async () => {
     setIsCaller(true);
     setupPeerConnection();
@@ -84,31 +77,20 @@ function VideoChat({ roomId }) {
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
       await set(offerRef, offer);
-      console.log("📤 Offer set in DB:", offer);
 
       const unsubscribe = onValue(answerRef, async (snapshot) => {
         const answer = snapshot.val();
-        if (
-          answer &&
-          pcRef.current &&
-          pcRef.current.signalingState === "have-local-offer"
-        ) {
-          try {
-            console.log("📨 Answer received:", answer);
-            await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-            setStarted(true);
-            unsubscribe(); // Listen only once
-          } catch (err) {
-            console.error("❌ Failed to set remote answer:", err);
-          }
+        if (answer && pcRef.current?.signalingState === "have-local-offer") {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+          setStarted(true);
+          unsubscribe();
         }
       });
     } catch (err) {
-      console.error("❌ Error starting call:", err);
+      console.error("Error starting call:", err);
     }
   };
 
-  // Callee
   const answerCall = async () => {
     setIsCaller(false);
     setupPeerConnection();
@@ -125,51 +107,50 @@ function VideoChat({ roomId }) {
         return;
       }
 
-      console.log("📥 Setting remote description with offer:", offer);
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-
       const answer = await pcRef.current.createAnswer();
       await pcRef.current.setLocalDescription(answer);
       await set(answerRef, answer);
-      console.log("📤 Answer set in DB:", answer);
 
       setStarted(true);
     } catch (err) {
-      console.error("❌ Error answering call:", err);
+      console.error("Error answering call:", err);
     }
   };
 
   return (
-    <div className="max-w-xl mx-auto p-4 space-y-4">
-      <div className="flex space-x-4">
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-1/2 border rounded"
-        />
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="w-1/2 border rounded"
-        />
-      </div>
+    <div className="relative w-full h-screen bg-black text-white overflow-hidden">
+      {/* Remote Video (full screen) */}
+      <video
+        ref={remoteVideoRef}
+        autoPlay
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover"
+      />
 
+      {/* Local Video (small bottom-right) */}
+      <video
+        ref={localVideoRef}
+        autoPlay
+        muted
+        playsInline
+        className="absolute bottom-6 right-6 w-28 h-40 md:w-32 md:h-44 rounded-2xl border-4 border-white object-cover shadow-lg"
+      />
+
+      {/* Control Buttons (bottom center) */}
       {!started && (
-        <div className="space-x-4">
+        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white/20 backdrop-blur-md px-6 py-4 rounded-3xl flex space-x-6 shadow-xl">
           <button
             onClick={startCall}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            className="w-14 h-14 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white text-xl"
           >
-            Start Call (Caller)
+            📞
           </button>
           <button
             onClick={answerCall}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center text-white text-xl"
           >
-            Answer Call (Callee)
+            
           </button>
         </div>
       )}
