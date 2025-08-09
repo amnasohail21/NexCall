@@ -1,14 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import { ref, onValue, set, push, get, remove } from "firebase/database";
+import {
+  ref,
+  onValue,
+  set,
+  push,
+  get,
+  remove,
+} from "firebase/database";
 import { database } from "../firebase";
+import {
+  FaPhoneAlt,
+  FaMicrophone,
+  FaMicrophoneSlash,
+  FaVideo,
+  FaVideoSlash,
+} from "react-icons/fa";
 
 function VideoChat({ roomId }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
+
   const [started, setStarted] = useState(false);
   const [isCaller, setIsCaller] = useState(null);
   const [incomingCall, setIncomingCall] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
 
   const roomRef = ref(database, `rooms/${roomId}`);
   const offerRef = ref(database, `rooms/${roomId}/offer`);
@@ -30,13 +47,15 @@ function VideoChat({ roomId }) {
     pcRef.current.onicecandidate = (event) => {
       if (event.candidate) {
         const candidateData = event.candidate.toJSON();
-        const candidatesRef = isCaller ? callerCandidatesRef : calleeCandidatesRef;
+        const candidatesRef = isCaller
+          ? callerCandidatesRef
+          : calleeCandidatesRef;
         push(candidatesRef, candidateData);
       }
     };
   };
 
-  // incoming calls
+  // set incoming call 
   useEffect(() => {
     const unsubscribe = onValue(offerRef, (snapshot) => {
       if (snapshot.val() && !started && isCaller === null) {
@@ -44,12 +63,15 @@ function VideoChat({ roomId }) {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [offerRef, started, isCaller]);
 
   useEffect(() => {
     if (!roomId || !pcRef.current || isCaller === null) return;
 
-    const remoteCandidatesRef = isCaller ? calleeCandidatesRef : callerCandidatesRef;
+    const remoteCandidatesRef = isCaller
+      ? calleeCandidatesRef
+      : callerCandidatesRef;
+
     const unsubscribe = onValue(remoteCandidatesRef, (snapshot) => {
       const candidates = snapshot.val();
       if (candidates) {
@@ -81,9 +103,16 @@ function VideoChat({ roomId }) {
     setupPeerConnection();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localVideoRef.current.srcObject = stream;
-      stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        stream.getTracks().forEach((track) =>
+          pcRef.current.addTrack(track, stream)
+        );
+      }
 
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
@@ -92,7 +121,9 @@ function VideoChat({ roomId }) {
       const unsubscribe = onValue(answerRef, async (snapshot) => {
         const answer = snapshot.val();
         if (answer && pcRef.current?.signalingState === "have-local-offer") {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+          await pcRef.current.setRemoteDescription(
+            new RTCSessionDescription(answer)
+          );
           setStarted(true);
           unsubscribe();
         }
@@ -107,9 +138,16 @@ function VideoChat({ roomId }) {
     setupPeerConnection();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localVideoRef.current.srcObject = stream;
-      stream.getTracks().forEach((track) => pcRef.current.addTrack(track, stream));
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        stream.getTracks().forEach((track) =>
+          pcRef.current.addTrack(track, stream)
+        );
+      }
 
       const offerSnapshot = await get(offerRef);
       const offer = offerSnapshot.val();
@@ -131,13 +169,28 @@ function VideoChat({ roomId }) {
   };
 
   const declineCall = () => {
-    remove(roomRef);
+    remove(roomRef).catch(() => {});
     setIncomingCall(false);
   };
 
+  const toggleMute = () => {
+    const stream = localVideoRef.current?.srcObject;
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => (track.enabled = !track.enabled));
+      setIsMuted((m) => !m);
+    }
+  };
+
+  const toggleVideo = () => {
+    const stream = localVideoRef.current?.srcObject;
+    if (stream) {
+      stream.getVideoTracks().forEach((track) => (track.enabled = !track.enabled));
+      setIsVideoOff((v) => !v);
+    }
+  };
+
   return (
-    <div className="relative w-full h-screen bg-black text-white overflow-hidden">
-      {/* Remote Video */}
+    <div className="relative w-full h-screen bg-black overflow-hidden">
       <video
         ref={remoteVideoRef}
         autoPlay
@@ -145,32 +198,27 @@ function VideoChat({ roomId }) {
         className="absolute inset-0 w-full h-full object-cover"
       />
 
-      {/* Black gradient at bottom */}
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 to-transparent z-10"></div>
-
-      {/* Local Video */}
       <video
         ref={localVideoRef}
         autoPlay
         muted
         playsInline
-        className="absolute top-6 right-6 w-28 h-40 md:w-32 md:h-44 rounded-xl border-2 border-white object-cover shadow-lg z-20"
+        className="absolute bottom-6 right-6 w-28 h-40 md:w-36 md:h-48 rounded-xl border-2 border-white shadow-lg z-20 object-cover"
       />
 
-      {/* Incoming Call Overlay */}
       {incomingCall && !started && (
         <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-30">
           <h2 className="text-2xl font-semibold mb-6">📞 Incoming Call</h2>
           <div className="flex space-x-6">
             <button
               onClick={declineCall}
-              className="w-16 h-16 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-2xl"
+              className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center text-2xl"
             >
               ❌
             </button>
             <button
               onClick={answerCall}
-              className="w-16 h-16 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-2xl"
+              className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-2xl"
             >
               ✅
             </button>
@@ -178,26 +226,36 @@ function VideoChat({ roomId }) {
         </div>
       )}
 
-      {/* Call Controls */}
       {started && (
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20">
-          <button className="w-14 h-14 bg-gray-500 hover:bg-gray-600 rounded-full flex items-center justify-center">🎤</button>
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20 bg-black/40 backdrop-blur-lg rounded-full px-6 py-3">
+          <button
+            onClick={toggleMute}
+            className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl"
+          >
+            {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
+          </button>
           <button
             onClick={() => window.location.reload()}
-            className="w-14 h-14 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center"
+            className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center text-white text-xl"
+            title="End Call"
           >
-            📴
+            <FaPhoneAlt />
           </button>
-          <button className="w-14 h-14 bg-gray-500 hover:bg-gray-600 rounded-full flex items-center justify-center">📷</button>
+          <button
+            onClick={toggleVideo}
+            className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl"
+          >
+            {isVideoOff ? <FaVideoSlash /> : <FaVideo />}
+          </button>
         </div>
       )}
 
-      {/* Call Start Buttons */}
       {!started && !incomingCall && (
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20">
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20">
           <button
             onClick={startCall}
-            className="w-16 h-16 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white text-xl"
+            className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white text-2xl"
+            title="Start Call"
           >
             📞
           </button>
