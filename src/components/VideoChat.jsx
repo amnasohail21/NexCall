@@ -8,6 +8,7 @@ function VideoChat({ roomId }) {
   const pcRef = useRef(null);
   const [started, setStarted] = useState(false);
   const [isCaller, setIsCaller] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(false);
 
   const roomRef = ref(database, `rooms/${roomId}`);
   const offerRef = ref(database, `rooms/${roomId}/offer`);
@@ -34,6 +35,16 @@ function VideoChat({ roomId }) {
       }
     };
   };
+
+  // incoming calls
+  useEffect(() => {
+    const unsubscribe = onValue(offerRef, (snapshot) => {
+      if (snapshot.val() && !started && isCaller === null) {
+        setIncomingCall(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!roomId || !pcRef.current || isCaller === null) return;
@@ -113,14 +124,20 @@ function VideoChat({ roomId }) {
       await set(answerRef, answer);
 
       setStarted(true);
+      setIncomingCall(false);
     } catch (err) {
       console.error("Error answering call:", err);
     }
   };
 
+  const declineCall = () => {
+    remove(roomRef);
+    setIncomingCall(false);
+  };
+
   return (
     <div className="relative w-full h-screen bg-black text-white overflow-hidden">
-      {/* Remote Video (full screen) */}
+      {/* Remote Video */}
       <video
         ref={remoteVideoRef}
         autoPlay
@@ -128,29 +145,61 @@ function VideoChat({ roomId }) {
         className="absolute inset-0 w-full h-full object-cover"
       />
 
-      {/* Local Video (small bottom-right) */}
+      {/* Black gradient at bottom */}
+      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 to-transparent z-10"></div>
+
+      {/* Local Video */}
       <video
         ref={localVideoRef}
         autoPlay
         muted
         playsInline
-        className="absolute bottom-6 right-6 w-28 h-40 md:w-32 md:h-44 rounded-2xl border-4 border-white object-cover shadow-lg"
+        className="absolute top-6 right-6 w-28 h-40 md:w-32 md:h-44 rounded-xl border-2 border-white object-cover shadow-lg z-20"
       />
 
-      {/* Control Buttons (bottom center) */}
-      {!started && (
-        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-white/20 backdrop-blur-md px-6 py-4 rounded-3xl flex space-x-6 shadow-xl">
+      {/* Incoming Call Overlay */}
+      {incomingCall && !started && (
+        <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-30">
+          <h2 className="text-2xl font-semibold mb-6">📞 Incoming Call</h2>
+          <div className="flex space-x-6">
+            <button
+              onClick={declineCall}
+              className="w-16 h-16 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-2xl"
+            >
+              ❌
+            </button>
+            <button
+              onClick={answerCall}
+              className="w-16 h-16 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-2xl"
+            >
+              ✅
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Call Controls */}
+      {started && (
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20">
+          <button className="w-14 h-14 bg-gray-500 hover:bg-gray-600 rounded-full flex items-center justify-center">🎤</button>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-14 h-14 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center"
+          >
+            📴
+          </button>
+          <button className="w-14 h-14 bg-gray-500 hover:bg-gray-600 rounded-full flex items-center justify-center">📷</button>
+        </div>
+      )}
+
+      {/* Call Start Buttons */}
+      {!started && !incomingCall && (
+        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20">
           <button
             onClick={startCall}
-            className="w-14 h-14 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white text-xl"
+            className="w-16 h-16 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center text-white text-xl"
           >
             📞
-          </button>
-          <button
-            onClick={answerCall}
-            className="w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center text-white text-xl"
-          >
-            
           </button>
         </div>
       )}
