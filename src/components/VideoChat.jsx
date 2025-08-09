@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ref,
-  onValue,
-  set,
-  push,
-  get,
-  remove,
-} from "firebase/database";
+import { ref, onValue, set, push, get, remove } from "firebase/database";
 import { database } from "../firebase";
 import {
   FaPhoneAlt,
@@ -26,6 +19,7 @@ function VideoChat({ roomId }) {
   const [incomingCall, setIncomingCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [callEnded, setCallEnded] = useState(false);
 
   const roomRef = ref(database, `rooms/${roomId}`);
   const offerRef = ref(database, `rooms/${roomId}/offer`);
@@ -55,18 +49,20 @@ function VideoChat({ roomId }) {
     };
   };
 
-  // set incoming call 
+  // Listen for incoming call offer
   useEffect(() => {
+    if (started || isCaller !== null) return;
     const unsubscribe = onValue(offerRef, (snapshot) => {
-      if (snapshot.val() && !started && isCaller === null) {
+      if (snapshot.exists()) {
         setIncomingCall(true);
       }
     });
     return () => unsubscribe();
   }, [offerRef, started, isCaller]);
 
+  // Listen for remote ICE candidates
   useEffect(() => {
-    if (!roomId || !pcRef.current || isCaller === null) return;
+    if (!pcRef.current || isCaller === null) return;
 
     const remoteCandidatesRef = isCaller
       ? calleeCandidatesRef
@@ -86,17 +82,15 @@ function VideoChat({ roomId }) {
     });
 
     return () => unsubscribe();
-  }, [roomId, isCaller]);
+  }, [isCaller]);
 
+  // Cleanup peer connection and room data on unmount or call end
   useEffect(() => {
     return () => {
-      if (pcRef.current) {
-        pcRef.current.close();
-        pcRef.current = null;
-      }
-      remove(roomRef).catch(() => {});
+      hangUpCall();
     };
-  }, [roomId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startCall = async () => {
     setIsCaller(true);
@@ -107,6 +101,7 @@ function VideoChat({ roomId }) {
         video: true,
         audio: true,
       });
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         stream.getTracks().forEach((track) =>
@@ -118,9 +113,13 @@ function VideoChat({ roomId }) {
       await pcRef.current.setLocalDescription(offer);
       await set(offerRef, offer);
 
+      // Listen for answer from callee
       const unsubscribe = onValue(answerRef, async (snapshot) => {
         const answer = snapshot.val();
-        if (answer && pcRef.current?.signalingState === "have-local-offer") {
+        if (
+          answer &&
+          pcRef.current.signalingState === "have-local-offer"
+        ) {
           await pcRef.current.setRemoteDescription(
             new RTCSessionDescription(answer)
           );
@@ -142,6 +141,7 @@ function VideoChat({ roomId }) {
         video: true,
         audio: true,
       });
+
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
         stream.getTracks().forEach((track) =>
@@ -171,6 +171,26 @@ function VideoChat({ roomId }) {
   const declineCall = () => {
     remove(roomRef).catch(() => {});
     setIncomingCall(false);
+  };
+
+  // Hang up call and cleanup everything
+  const hangUpCall = () => {
+    if (pcRef.current) {
+      pcRef.current.getSenders().forEach((sender) => {
+        if (sender.track) sender.track.stop();
+      });
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+
+    remove(roomRef)
+      .catch(() => {})
+      .finally(() => {
+        setStarted(false);
+        setIsCaller(null);
+        setIncomingCall(false);
+        setCallEnded(true);
+      });
   };
 
   const toggleMute = () => {
@@ -226,16 +246,17 @@ function VideoChat({ roomId }) {
         </div>
       )}
 
-      {started && (
+      {started && !callEnded && (
         <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20 bg-black/40 backdrop-blur-lg rounded-full px-6 py-3">
           <button
             onClick={toggleMute}
             className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl"
+            title={isMuted ? "Unmute" : "Mute"}
           >
             {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
           </button>
           <button
-            onClick={() => window.location.reload()}
+            onClick={hangUpCall}
             className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center text-white text-xl"
             title="End Call"
           >
@@ -244,13 +265,14 @@ function VideoChat({ roomId }) {
           <button
             onClick={toggleVideo}
             className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl"
+            title={isVideoOff ? "Turn Video On" : "Turn Video Off"}
           >
             {isVideoOff ? <FaVideoSlash /> : <FaVideo />}
           </button>
         </div>
       )}
 
-      {!started && !incomingCall && (
+      {!started && !incomingCall && !callEnded && (
         <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20">
           <button
             onClick={startCall}
@@ -259,6 +281,12 @@ function VideoChat({ roomId }) {
           >
             📞
           </button>
+        </div>
+      )}
+
+      {callEnded && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-2xl z-20 bg-black/80">
+          <p>Call Ended</p>
         </div>
       )}
     </div>
