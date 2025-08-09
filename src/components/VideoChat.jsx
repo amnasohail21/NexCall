@@ -13,6 +13,7 @@ function VideoChat({ roomId }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
+  const ringtoneRef = useRef(null);
 
   const [started, setStarted] = useState(false);
   const [isCaller, setIsCaller] = useState(null);
@@ -48,6 +49,31 @@ function VideoChat({ roomId }) {
       }
     };
   };
+
+  // Play/stop ringtone on incoming call
+  useEffect(() => {
+    if (incomingCall && ringtoneRef.current) {
+      ringtoneRef.current.play().catch(() => {});
+    } else if (ringtoneRef.current) {
+      ringtoneRef.current.pause();
+      ringtoneRef.current.currentTime = 0;
+    }
+  }, [incomingCall]);
+
+  // Browser notification on incoming call
+  useEffect(() => {
+    if (incomingCall) {
+      if (Notification.permission === "granted") {
+        new Notification("NexCall", { body: "Incoming FaceTime call 📞" });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then((permission) => {
+          if (permission === "granted") {
+            new Notification("NexCall", { body: "Incoming FaceTime call 📞" });
+          }
+        });
+      }
+    }
+  }, [incomingCall]);
 
   // Listen for incoming call offer
   useEffect(() => {
@@ -226,64 +252,85 @@ function VideoChat({ roomId }) {
         className="absolute bottom-6 right-6 w-28 h-40 md:w-36 md:h-48 rounded-xl border-2 border-white shadow-lg z-20 object-cover"
       />
 
-      {incomingCall && !started && (
-        <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-30">
-          <h2 className="text-2xl font-semibold mb-6">📞 Incoming Call</h2>
-          <div className="flex space-x-6">
-            <button
-              onClick={declineCall}
-              className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center text-2xl"
-            >
-              ❌
-            </button>
-            <button
-              onClick={answerCall}
-              className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-2xl"
-            >
-              ✅
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Ringtone audio */}
+      <audio ref={ringtoneRef} src="/ringtone.mp3" loop />
 
-      {started && !callEnded && (
-        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20 bg-black/40 backdrop-blur-lg rounded-full px-6 py-3">
+      {/* Incoming call overlay with fade animation */}
+      <div
+        className={`absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-30
+          transition-opacity duration-300
+          ${incomingCall && !started ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      >
+        <h2 className="text-2xl font-semibold mb-6">📞 Incoming Call</h2>
+        <div className="flex space-x-6">
           <button
-            onClick={toggleMute}
-            className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl"
-            title={isMuted ? "Unmute" : "Mute"}
+            onClick={declineCall}
+            className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center text-2xl
+              transform transition-transform duration-150 hover:scale-110 active:scale-90"
+            aria-label="Decline call"
           >
-            {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
+            ❌
           </button>
           <button
-            onClick={hangUpCall}
-            className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center text-white text-xl"
-            title="End Call"
+            onClick={answerCall}
+            className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-2xl
+              transform transition-transform duration-150 hover:scale-110 active:scale-90"
+            aria-label="Answer call"
           >
-            <FaPhoneAlt />
-          </button>
-          <button
-            onClick={toggleVideo}
-            className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl"
-            title={isVideoOff ? "Turn Video On" : "Turn Video Off"}
-          >
-            {isVideoOff ? <FaVideoSlash /> : <FaVideo />}
+            ✅
           </button>
         </div>
-      )}
+      </div>
 
+      {/* Call controls with fade & scale animations */}
+      <div
+        className={`absolute bottom-8 left-1/2 transform -translate-x-1/2 flex space-x-6 z-20
+          bg-black/40 backdrop-blur-lg rounded-full px-6 py-3
+          transition-opacity duration-300
+          ${started && !callEnded ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      >
+        <button
+          onClick={toggleMute}
+          className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl
+            transform transition-transform duration-150 hover:scale-110 active:scale-90"
+          title={isMuted ? "Unmute" : "Mute"}
+        >
+          {isMuted ? <FaMicrophoneSlash /> : <FaMicrophone />}
+        </button>
+        <button
+          onClick={hangUpCall}
+          className="w-14 h-14 bg-red-500 rounded-full flex items-center justify-center text-white text-xl
+            transform transition-transform duration-150 hover:scale-110 active:scale-90"
+          title="End Call"
+        >
+          <FaPhoneAlt />
+        </button>
+        <button
+          onClick={toggleVideo}
+          className="w-14 h-14 bg-white rounded-full flex items-center justify-center text-black text-xl
+            transform transition-transform duration-150 hover:scale-110 active:scale-90"
+          title={isVideoOff ? "Turn Video On" : "Turn Video Off"}
+        >
+          {isVideoOff ? <FaVideoSlash /> : <FaVideo />}
+        </button>
+      </div>
+
+      {/* Start call button */}
       {!started && !incomingCall && !callEnded && (
         <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20">
           <button
             onClick={startCall}
-            className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white text-2xl"
+            className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white text-2xl
+              transform transition-transform duration-150 hover:scale-110 active:scale-90"
             title="Start Call"
+            aria-label="Start call"
           >
             📞
           </button>
         </div>
       )}
 
+      {/* Call ended overlay */}
       {callEnded && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-2xl z-20 bg-black/80">
           <p>Call Ended</p>
